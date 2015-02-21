@@ -1,0 +1,2 @@
+aiohttp
+git+git://git.louiz.org/slixmpp#egg=slixmpp
