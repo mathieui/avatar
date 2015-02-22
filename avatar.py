@@ -26,11 +26,21 @@ class VCardFetcher(slixmpp.ClientXMPP):
     """
     def __init__(self, jid, password):
         slixmpp.ClientXMPP.__init__(self, jid=jid, password=password)
+        self.connected_future = asyncio.Future()
+        self.add_event_handler('session_start', self.on_session_start)
         self.register_plugin('xep_0054')
 
     def fetch_vcard(self, jid_to, callback):
         "Send a vcard request to a specific JID"
         self['xep_0054'].get_vcard(jid=jid_to, callback=callback)
+
+    def on_session_start(self, *args, **kwargs):
+        "Unblock when the session is established"
+        self.connected_future.set_result(True)
+
+    def reset_future(self):
+        "Reset the future in case of disconnection"
+        self.connected_future = asyncio.Future()
 
 @asyncio.coroutine
 def handle(request):
@@ -64,11 +74,7 @@ def handle(request):
                 queue.put_nowait({'status': 404,
                                   'content_type': 'image/svg+xml',
                                   'text': EMPTY_AVATAR})
-    try:
-        XMPP.fetch_vcard(jid_to=jid, callback=vcard_callback)
-    except slixmpp.xmlstream.xmlstream.NotConnectedError:
-        log.error('XMPP Client Not connected')
-        return err_404
+    XMPP.fetch_vcard(jid_to=jid, callback=vcard_callback)
     result = yield from queue.get()
     return web.Response(**result)
 
@@ -87,6 +93,8 @@ def main(namespace):
     global XMPP
     XMPP = VCardFetcher(namespace.jid, namespace.password)
     XMPP.connect()
+    loop.run_until_complete(XMPP.connected_future)
+    XMPP.reset_future()
     loop.run_until_complete(init(loop, namespace.host, namespace.port,
                                  namespace.avatar_prefix))
     try:
