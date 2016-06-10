@@ -30,9 +30,9 @@ class VCardFetcher(slixmpp.ClientXMPP):
         self.add_event_handler('session_start', self.on_session_start)
         self.register_plugin('xep_0054')
 
-    def fetch_vcard(self, jid_to, callback):
+    def fetch_vcard(self, jid_to):
         "Send a vcard request to a specific JID"
-        self['xep_0054'].get_vcard(jid=jid_to, callback=callback)
+        return self['xep_0054'].get_vcard(jid=jid_to, timeout=10)
 
     def on_session_start(self, *args, **kwargs):
         "Unblock when the session is established"
@@ -42,8 +42,33 @@ class VCardFetcher(slixmpp.ClientXMPP):
         "Reset the future in case of disconnection"
         self.connected_future = asyncio.Future()
 
-@asyncio.coroutine
-def handle(request):
+def parse_vcard(vcard):
+    img_type = vcard.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}TYPE')
+    img_val = vcard.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}BINVAL')
+
+    if None in (img_type, img_val) or None in (img_type.text, img_val.text):
+        reply = {
+            'status': 404,
+            'content_type': 'image/svg+xml',
+            'text': EMPTY_AVATAR
+        }
+    else:
+        try:
+            img_val = base64.decodebytes(img_val.text.encode('ascii'))
+            reply = {
+                'body': img_val,
+                 'content_type': img_type.text
+            }
+        except Exception as e:
+            log.warning("Failed decoding base64 for %s (%s)", jid, e)
+            reply = {
+                'status': 404,
+                 'content_type': 'image/svg+xml',
+                 'text': EMPTY_AVATAR
+            }
+    return reply
+
+async def handle(request):
     "Handle the HTTP request and block until the vcard is fetched"
     err_404 = web.Response(status=404, text='Not found')
     try:
@@ -53,37 +78,20 @@ def handle(request):
     else:
         if not jid:
             return err_404
+    try:
+        vcard = await XMPP.fetch_vcard(jid_to=jid)
+    except Exception:
+        log.warning("Failed to fetch vcard for %s", jid, exc_info=True)
+        return err_404
 
-    queue = asyncio.Queue(maxsize=1)
+    reply = parse_vcard(vcard)
+    return web.Response(**reply)
 
-    def vcard_callback(result):
-        "Parse the vcard result"
-        img_type = result.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}TYPE')
-        img_val = result.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}BINVAL')
-
-        if None in (img_type, img_val) or None in (img_type.text, img_val.text):
-            queue.put_nowait({'status': 404,
-                              'content_type': 'image/svg+xml',
-                              'text': EMPTY_AVATAR})
-        else:
-            try:
-                img_val = base64.decodebytes(img_val.text.encode('ascii'))
-                queue.put_nowait({'body': img_val,
-                                  'content_type': img_type.text})
-            except:
-                queue.put_nowait({'status': 404,
-                                  'content_type': 'image/svg+xml',
-                                  'text': EMPTY_AVATAR})
-    XMPP.fetch_vcard(jid_to=jid, callback=vcard_callback)
-    result = yield from queue.get()
-    return web.Response(**result)
-
-@asyncio.coroutine
-def init(loop, host: str, port: str, avatar_prefix: str):
+async def init(loop, host: str, port: str, avatar_prefix: str):
     "Initialize the HTTP server"
     app = web.Application(loop=loop)
     app.router.add_route('GET', '/%s{jid}' % avatar_prefix, handle)
-    srv = yield from loop.create_server(app.make_handler(), host, port)
+    srv = await loop.create_server(app.make_handler(), host, port)
     log.info("Server started at http://%s:%s", host, port)
     return srv
 
@@ -107,9 +115,9 @@ def parse_args():
     "Parse the command-line arguments"
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--jid', dest='jid', default=JID,
+    parser.add_argument('--jid', '-j', dest='jid', default=JID,
                         help='JID to use for fetching the vcards')
-    parser.add_argument('--password', dest='password', default=PASSWORD,
+    parser.add_argument('--password', '-p', dest='password', default=PASSWORD,
                         help='Password linked to the JID')
     parser.add_argument('--host', dest='host', default=HOST,
                         help='Host on which the HTTP server will listen')
