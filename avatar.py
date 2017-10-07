@@ -43,8 +43,8 @@ class VCardFetcher(slixmpp.ClientXMPP):
         self.connected_future = asyncio.Future()
 
 def parse_vcard(vcard):
-    img_type = vcard.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}TYPE')
-    img_val = vcard.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}BINVAL')
+    img_type = vcard.xml.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}TYPE')
+    img_val = vcard.xml.find('{vcard-temp}vCard/{vcard-temp}PHOTO/{vcard-temp}BINVAL')
 
     if None in (img_type, img_val) or None in (img_type.text, img_val.text):
         reply = {
