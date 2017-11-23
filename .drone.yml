@@ -1,0 +1,6 @@
+pipeline:
+    test:
+        image: poezio/test-base
+        commands:
+            - pip3 install pylint
+            - pylint -E avatar.py
