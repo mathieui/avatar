@@ -2,5 +2,5 @@ pipeline:
     test:
         image: poezio/test-base
         commands:
-            - pip3 install pylint
+            - pip3 install slixmpp aiohttp
             - pylint -E avatar.py

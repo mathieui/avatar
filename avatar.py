@@ -60,7 +60,7 @@ def parse_vcard(vcard):
                  'content_type': img_type.text
             }
         except Exception as e:
-            log.warning("Failed decoding base64 for %s (%s)", jid, e)
+            log.warning("Failed decoding base64 (%s)", e)
             reply = {
                 'status': 404,
                  'content_type': 'image/svg+xml',
